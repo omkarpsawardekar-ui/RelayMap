@@ -6,3 +6,4 @@ from .document_chunk import DocumentChunk
 from .knowledge_item import KnowledgeItem
 from .knowledge_relationship import KnowledgeRelationship
 from .handover_report import HandoverReport
+from app.models.github_item import GitHubItem

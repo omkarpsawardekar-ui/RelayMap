@@ -32,6 +32,7 @@ import KnowledgeReview from "./components/KnowledgeReview";
 import ContinuityDashboard from "./components/ContinuityDashboard";
 import KnowledgeMap from "./components/KnowledgeMap";
 import HandoverDashboard from "./components/HandoverDashboard";
+import GitHubSyncPanel from "./components/GitHubSyncPanel";
 
 import type {
   User,
@@ -1622,6 +1623,9 @@ function App() {
 
                   </div>
 
+                        {/* GITHUB REPOSITORY INTEGRATION */}
+
+<GitHubSyncPanel projectId={selectedProject.id} />
                   {/* UPLOADED DOCUMENT LIBRARY */}
 
                   <div className="form-card">

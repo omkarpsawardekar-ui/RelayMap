@@ -4,7 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.session import check_database_connection
 
-from app.api import users, projects, documents, knowledge, continuity, relationships, handovers
+from app.api import users, projects, documents, knowledge, continuity, relationships, handovers, github 
 
 # Initialize RelayMap application
 app = FastAPI(
@@ -33,6 +33,7 @@ app.include_router(knowledge.router)
 app.include_router(continuity.router)
 app.include_router(relationships.router)
 app.include_router(handovers.router)
+app.include_router(github.router)
 
 # Root endpoint
 @app.get("/")
