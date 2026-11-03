@@ -1,17 +1,34 @@
+
 from datetime import datetime, timezone
+import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.dependencies import get_current_user
+from app.core.permissions import (
+    require_project_access,
+    require_project_write_access,
+)
 
+from app.models.user import User
 from app.models.project import Project
 from app.models.github_item import GitHubItem
+from app.models.document import Document
+from app.models.document_chunk import DocumentChunk
+from app.models.knowledge_item import KnowledgeItem
 
 from app.services.github_services import (
     fetch_github_repository,
     GitHubAPIError,
+)
+
+from app.services.chunking_services import split_text
+
+from app.services.knowledge_extraction_service import (
+    extract_candidates_from_chunk,
 )
 
 
@@ -51,7 +68,7 @@ def parse_github_datetime(value):
 
         return parsed
 
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         return None
 
 
@@ -109,11 +126,7 @@ def build_github_item_values(
 
 
 def get_project_or_404(db: Session, project_id: int):
-    project = (
-        db.query(Project)
-        .filter(Project.id == project_id)
-        .first()
-    )
+    project = db.get(Project, project_id)
 
     if project is None:
         raise HTTPException(
@@ -132,9 +145,18 @@ def get_project_or_404(db: Session, project_id: int):
 def preview_github_repository(
     project_id: int,
     request: GitHubRepositoryRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     project = get_project_or_404(db, project_id)
+
+    # Preview does not modify the database.
+    # Project read access is sufficient.
+    require_project_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     try:
         result = fetch_github_repository(
@@ -162,9 +184,17 @@ def preview_github_repository(
 def sync_github_repository(
     project_id: int,
     request: GitHubRepositoryRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     project = get_project_or_404(db, project_id)
+
+    # Synchronization writes GitHub records into the project.
+    require_project_write_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     # Step 1: Fetch the repository and its records from GitHub.
     try:
@@ -313,9 +343,17 @@ def get_github_items(
         default=None,
         pattern="^(open|closed)$",
     ),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id)
+
+    # Users must have read access to see imported GitHub records.
+    require_project_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     query = (
         db.query(GitHubItem)
@@ -364,4 +402,274 @@ def get_github_items(
             }
             for item in records
         ],
+    }
+
+
+# =========================================================
+# IMPORT GITHUB RECORDS INTO THE KNOWLEDGE PIPELINE
+# =========================================================
+
+@router.post("/extract")
+def extract_github_knowledge(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    project = get_project_or_404(db, project_id)
+
+    # Extraction creates project documents, chunks and knowledge items.
+    require_project_write_access(
+        db,
+        project,
+        current_user.id,
+    )
+
+    # Step 1: Get all previously imported GitHub records.
+    github_records = (
+        db.query(GitHubItem)
+        .filter(GitHubItem.project_id == project_id)
+        .order_by(GitHubItem.item_number.asc())
+        .all()
+    )
+
+    if not github_records:
+        return {
+            "message": "No GitHub records found. Sync a repository first.",
+            "project_id": project_id,
+            "records_processed": 0,
+            "documents_created": 0,
+            "chunks_created": 0,
+            "candidates_created": 0,
+            "duplicates_skipped": 0,
+        }
+
+    documents_created = 0
+    chunks_created = 0
+    candidates_created = 0
+    duplicates_skipped = 0
+    records_processed = 0
+
+    try:
+        for record in github_records:
+
+            # Step 2: Prepare source content from the original
+            # GitHub issue or pull request title and body.
+            source_text = "\n\n".join(
+                part.strip()
+                for part in [
+                    record.title or "",
+                    record.body or "",
+                ]
+                if part and part.strip()
+            )
+
+            if not source_text:
+                continue
+
+            content_bytes = source_text.encode("utf-8")
+
+            content_hash = hashlib.sha256(
+                content_bytes
+            ).hexdigest()
+
+            item_type = (
+                "issue"
+                if record.item_type == "issue"
+                else "pull_request"
+            )
+
+            # The source filename is deterministic for this
+            # exact GitHub record and content snapshot.
+            stored_filename = (
+                f"github-p{project_id}-"
+                f"{record.github_id}-"
+                f"{content_hash[:12]}.md"
+            )
+
+            # Step 3: Reuse an existing source snapshot
+            # if this exact content has already been imported.
+            document = (
+                db.query(Document)
+                .filter(
+                    Document.project_id == project_id,
+                    Document.stored_filename == stored_filename,
+                )
+                .first()
+            )
+
+            if document is None:
+
+                virtual_source_path = (
+                    f"github://{record.repository_full_name}/"
+                    f"{item_type}s/{record.item_number}"
+                )
+
+                document = Document(
+                    project_id=project_id,
+
+                    original_filename=(
+                        f"GitHub {item_type.replace('_', ' ').title()} "
+                        f"#{record.item_number} - {record.title}"
+                    )[:255],
+
+                    stored_filename=stored_filename,
+                    file_type="md",
+                    mime_type="text/markdown",
+
+                    # A virtual GitHub URI, not a local filesystem path.
+                    file_path=virtual_source_path,
+
+                    size_bytes=len(content_bytes),
+                    sha256=content_hash,
+
+                    extraction_status="processed",
+                    extracted_text=source_text,
+                )
+
+                db.add(document)
+                db.flush()
+
+                documents_created += 1
+
+                # Step 4: Build evidence chunks from the issue
+                # or pull request content.
+                text_parts = split_text(source_text)
+
+                for part_number, text_part in enumerate(
+                    text_parts,
+                    start=1,
+                ):
+                    chunk_hash = hashlib.sha256(
+                        text_part.encode("utf-8")
+                    ).hexdigest()
+
+                    locator = (
+                        f"github:{item_type}/{record.item_number}"
+                    )
+
+                    if len(text_parts) > 1:
+                        locator += (
+                            f",part:{part_number}/{len(text_parts)}"
+                        )
+
+                    chunk = DocumentChunk(
+                        document_id=document.id,
+                        chunk_index=part_number,
+                        source_locator=locator[:120],
+                        chunk_text=text_part,
+                        content_sha256=chunk_hash,
+                    )
+
+                    db.add(chunk)
+                    db.flush()
+
+                    chunks_created += 1
+
+            # Step 5: Retrieve all chunks associated with this
+            # exact source snapshot.
+            source_chunks = (
+                db.query(DocumentChunk)
+                .filter(
+                    DocumentChunk.document_id == document.id
+                )
+                .order_by(DocumentChunk.chunk_index.asc())
+                .all()
+            )
+
+            # Step 6: Run the existing deterministic extractor.
+            for chunk in source_chunks:
+
+                candidates = extract_candidates_from_chunk(
+                    chunk.chunk_text
+                )
+
+                for candidate in candidates:
+
+                    # Check for an identical candidate first.
+                    existing_candidate = (
+                        db.query(KnowledgeItem)
+                        .filter(
+                            KnowledgeItem.project_id == project_id,
+                            KnowledgeItem.chunk_id == chunk.id,
+                            KnowledgeItem.item_type
+                            == candidate["item_type"],
+                            KnowledgeItem.evidence_hash
+                            == candidate["evidence_hash"],
+                        )
+                        .first()
+                    )
+
+                    if existing_candidate:
+                        duplicates_skipped += 1
+                        continue
+
+                    # All GitHub-derived candidates require
+                    # the same human review as document candidates.
+                    knowledge_item = KnowledgeItem(
+                        project_id=project_id,
+                        document_id=document.id,
+                        chunk_id=chunk.id,
+
+                        item_type=candidate["item_type"],
+                        title=candidate["title"],
+                        description=candidate["description"],
+
+                        source_excerpt=candidate["source_excerpt"],
+                        evidence_hash=candidate["evidence_hash"],
+
+                        candidate_owner_mention=(
+                            candidate["candidate_owner_mention"]
+                        ),
+
+                        # GitHub state and assignees are source data,
+                        # not verified RelayMap ownership.
+                        work_status="unknown",
+                        review_status="pending",
+
+                        extraction_method="github_rule_based",
+                    )
+
+                    db.add(knowledge_item)
+                    candidates_created += 1
+
+            records_processed += 1
+
+        # Step 7: Save all source documents, chunks and candidates.
+        db.commit()
+
+    except Exception as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "GitHub knowledge extraction failed. "
+                "The database changes were rolled back."
+            ),
+        ) from exc
+
+    return {
+        "message": (
+            "GitHub records processed into evidence-backed "
+            "knowledge candidates."
+        ),
+
+        "project_id": project_id,
+        "project_name": project.name,
+
+        "records_processed": records_processed,
+
+        "documents_created": documents_created,
+        "chunks_created": chunks_created,
+
+        "candidates_created": candidates_created,
+        "duplicates_skipped": duplicates_skipped,
+
+        "review_status": "pending",
+
+        "important_note": (
+            "GitHub usernames, assignees and task states "
+            "must be verified by a human before they are "
+            "treated as RelayMap ownership or work status."
+        ),
     }

@@ -1,3 +1,4 @@
+
 import hashlib
 import logging
 
@@ -8,6 +9,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from app.db.session import get_db
+
+from app.core.dependencies import get_current_user
+from app.core.permissions import (
+    require_project_access,
+    require_project_management,
+    require_project_write_access,
+)
 
 from app.models import (
     Project,
@@ -28,7 +36,7 @@ from app.schemas.knowledge_relationship import (
     GraphEdge,
 )
 
-from app.services.relationship_suggestion_service import (
+from app.services.llm_relationship_suggestion_service import (
     generate_relationship_candidates,
 )
 
@@ -53,6 +61,7 @@ router = APIRouter(
 def create_relationship(
     project_id: int,
     payload: KnowledgeRelationshipCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -61,12 +70,22 @@ def create_relationship(
     Its source and target must belong to this project.
     The evidence excerpt must exist in the selected evidence chunk.
     New relationships always require human review.
+
+    The creator is always the authenticated user.
+    Client-supplied creator IDs are never trusted.
     """
 
     project = db.get(Project, project_id)
 
     if project is None:
         raise HTTPException(404, "Project not found.")
+
+    # Only users with project write access can create relationships.
+    require_project_write_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     if payload.source_item_id == payload.target_item_id:
         raise HTTPException(
@@ -133,31 +152,6 @@ def create_relationship(
             "The evidence excerpt must exactly match text in the selected chunk.",
         )
 
-    # Validate creator membership if an ID is supplied.
-    if payload.created_by_user_id is not None:
-
-        creator = db.get(User, payload.created_by_user_id)
-
-        creator_member = (
-            db.query(ProjectMember)
-            .filter(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == payload.created_by_user_id,
-                ProjectMember.membership_status == "active",
-            )
-            .first()
-        )
-
-        if (
-            creator is None
-            or not creator.is_active
-            or creator_member is None
-        ):
-            raise HTTPException(
-                403,
-                "The relationship creator must be an active project member.",
-            )
-
     evidence_hash = hashlib.sha256(
         (
             f"{payload.source_item_id}|"
@@ -176,7 +170,9 @@ def create_relationship(
         evidence_excerpt=excerpt,
         evidence_hash=evidence_hash,
         review_status="pending",
-        created_by_user_id=payload.created_by_user_id,
+
+        # Never trust payload.created_by_user_id.
+        created_by_user_id=current_user.id,
     )
 
     db.add(relationship)
@@ -233,12 +229,26 @@ def create_relationship(
 def get_relationships(
     project_id: int,
     review_status: str | None = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    Return relationships belonging to a project.
+
+    The authenticated user must have project read access.
+    """
+
     project = db.get(Project, project_id)
 
     if project is None:
         raise HTTPException(404, "Project not found.")
+
+    # Read access is sufficient to view relationships.
+    require_project_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     SourceItem = aliased(KnowledgeItem)
     TargetItem = aliased(KnowledgeItem)
@@ -273,7 +283,11 @@ def get_relationships(
     )
 
     if review_status:
-        if review_status not in ("pending", "approved", "rejected"):
+        if review_status not in (
+            "pending",
+            "approved",
+            "rejected",
+        ):
             raise HTTPException(
                 422,
                 "Invalid relationship review status.",
@@ -326,12 +340,30 @@ def review_relationship(
     project_id: int,
     relationship_id: int,
     payload: KnowledgeRelationshipReview,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    Approve or reject a pending relationship.
+
+    Only project owners/admins or workspace owners/admins
+    can review relationships.
+
+    The reviewer is always the authenticated user.
+    Client-supplied reviewer IDs are never trusted.
+    """
+
     project = db.get(Project, project_id)
 
     if project is None:
         raise HTTPException(404, "Project not found.")
+
+    # Review requires management permission.
+    require_project_management(
+        db,
+        project,
+        current_user.id,
+    )
 
     relationship = (
         db.query(KnowledgeRelationship)
@@ -346,30 +378,6 @@ def review_relationship(
         raise HTTPException(
             404,
             "Relationship not found in this project.",
-        )
-
-    # Require an active owner or admin reviewer.
-    reviewer = db.get(User, payload.reviewed_by_user_id)
-
-    reviewer_member = (
-        db.query(ProjectMember)
-        .filter(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == payload.reviewed_by_user_id,
-            ProjectMember.membership_status == "active",
-        )
-        .first()
-    )
-
-    if (
-        reviewer is None
-        or not reviewer.is_active
-        or reviewer_member is None
-        or reviewer_member.role not in ("owner", "admin")
-    ):
-        raise HTTPException(
-            403,
-            "Only an active project owner or admin can review relationships.",
         )
 
     # A relationship is only approved if both endpoints are approved.
@@ -402,7 +410,10 @@ def review_relationship(
             )
 
     relationship.review_status = payload.review_status
-    relationship.reviewed_by_user_id = payload.reviewed_by_user_id
+
+    # Never trust payload.reviewed_by_user_id.
+    relationship.reviewed_by_user_id = current_user.id
+
     relationship.reviewed_at = datetime.now(timezone.utc)
     relationship.review_notes = payload.review_notes
 
@@ -439,6 +450,7 @@ def review_relationship(
 )
 def suggest_project_relationships(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -446,6 +458,9 @@ def suggest_project_relationships(
 
     Only approved knowledge items can be relationship endpoints.
     All generated relationships remain pending human review.
+
+    Generating suggestions writes to the database, so the user
+    must have project write access.
     """
 
     project = db.get(Project, project_id)
@@ -455,6 +470,12 @@ def suggest_project_relationships(
             status_code=404,
             detail="Project not found.",
         )
+
+    require_project_write_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     approved_items = (
         db.query(KnowledgeItem)
@@ -496,13 +517,29 @@ def suggest_project_relationships(
         .all()
     )
 
-    candidates = generate_relationship_candidates(
-        approved_items=approved_items,
-        chunks=chunks,
-    )
+   
+    chunks_to_scan = chunks[:25]
 
-    # Load existing relationship fingerprints so repeated scans
-    # do not create duplicate suggestions.
+    try:
+        candidates = generate_relationship_candidates(
+            approved_items=approved_items,
+            chunks=chunks_to_scan,
+        )
+
+    except RuntimeError as exc:
+        logger.exception(
+            "AI relationship generation failed for project %s.",
+            project_id,
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
+
+    
+
+
     existing_rows = (
         db.query(
             KnowledgeRelationship.source_item_id,
@@ -538,8 +575,8 @@ def suggest_project_relationships(
             duplicates_skipped += 1
             continue
 
-        # None identifies an automatically generated suggestion.
-        # It is not treated as a human-created or approved fact.
+        # Automatically generated suggestions have no human creator.
+        # They remain pending until an authorized person reviews them.
         relationship = KnowledgeRelationship(
             project_id=project_id,
             source_item_id=candidate["source_item_id"],
@@ -597,6 +634,7 @@ def suggest_project_relationships(
         "project_id": project_id,
         "approved_knowledge_items": len(approved_items),
         "chunks_scanned": len(chunks),
+        "chunks_available": len(chunks),
         "candidates_detected": len(candidates),
         "suggestions_created": len(new_relationships),
         "duplicates_skipped": duplicates_skipped,
@@ -610,6 +648,7 @@ def suggest_project_relationships(
         ),
     }
 
+
 # --------------------------------------------------
 # BUILD THE PROJECT KNOWLEDGE GRAPH
 # --------------------------------------------------
@@ -620,6 +659,7 @@ def suggest_project_relationships(
 )
 def get_knowledge_graph(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -629,12 +669,20 @@ def get_knowledge_graph(
     relationships are included.
 
     Verified assignments create person-to-task connections.
+
+    The authenticated user must have project read access.
     """
 
     project = db.get(Project, project_id)
 
     if project is None:
         raise HTTPException(404, "Project not found.")
+
+    require_project_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     nodes = []
     edges = []

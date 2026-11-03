@@ -29,6 +29,13 @@ class Project(Base):
         index=True
     )
 
+    workspace_id = Column(
+    Integer,
+    ForeignKey("workspaces.id", ondelete="CASCADE"),
+    nullable=True,
+    index=True
+)
+
     name = Column(
         String(150),
         nullable=False

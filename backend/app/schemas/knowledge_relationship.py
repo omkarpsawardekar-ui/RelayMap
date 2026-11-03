@@ -29,7 +29,7 @@ class KnowledgeRelationshipReview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     review_status: Literal["approved", "rejected"]
-    reviewed_by_user_id: int
+    reviewed_by_user_id: int | None = None
 
     review_notes: str | None = Field(
         default=None,

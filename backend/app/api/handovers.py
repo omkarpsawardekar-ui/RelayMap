@@ -1,3 +1,4 @@
+
 from datetime import datetime, timezone
 from collections import Counter
 
@@ -5,6 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.dependencies import get_current_user
+from app.core.permissions import (
+    require_project_access,
+    require_project_management,
+)
 
 from app.models.user import User
 from app.models.project import Project
@@ -41,6 +47,7 @@ def get_field(obj, *field_names, default=None):
     for field_name in field_names:
         if hasattr(obj, field_name):
             value = getattr(obj, field_name)
+
             if value is not None:
                 return value
 
@@ -75,51 +82,17 @@ def get_user_label(user):
 
 
 def get_project_memberships(db: Session, project_id: int):
+    """
+    Return all project memberships.
+
+    Departing and departed members are intentionally retained
+    because their assignments are relevant to continuity reports.
+    """
     return (
         db.query(ProjectMember)
         .filter(ProjectMember.project_id == project_id)
         .all()
     )
-
-
-def require_project_admin(
-    memberships,
-    user_id: int,
-):
-    """
-    Development-stage permission check.
-
-    Only an active project owner or admin can generate
-    or approve a handover report.
-    """
-    membership = next(
-        (
-            member
-            for member in memberships
-            if member.user_id == user_id
-        ),
-        None,
-    )
-
-    if membership is None:
-        raise HTTPException(
-            status_code=403,
-            detail="You are not a member of this project.",
-        )
-
-    if membership.membership_status != "active":
-        raise HTTPException(
-            status_code=403,
-            detail="Only active project members can perform this action.",
-        )
-
-    if membership.role not in ["owner", "admin"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Only project owners and admins can perform this action.",
-        )
-
-    return membership
 
 
 def build_source_reference(
@@ -129,6 +102,7 @@ def build_source_reference(
 ):
     """
     Build an evidence reference for a knowledge item.
+
     The source excerpt is included as evidence, not
     rewritten as a new claim.
     """
@@ -187,7 +161,11 @@ def serialize_knowledge_item(
         "type": get_field(item, "item_type"),
         "title": get_field(item, "title"),
         "description": get_field(item, "description"),
-        "work_status": get_field(item, "work_status", default="unknown"),
+        "work_status": get_field(
+            item,
+            "work_status",
+            default="unknown",
+        ),
         "assigned_to_user_id": assigned_user_id,
         "assigned_to": (
             user_labels.get(
@@ -209,6 +187,18 @@ def serialize_knowledge_item(
     }
 
 
+def get_project_or_404(db: Session, project_id: int):
+    project = db.get(Project, project_id)
+
+    if project is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found.",
+        )
+
+    return project
+
+
 # ---------------------------------------------------------
 # Generate a handover draft
 # ---------------------------------------------------------
@@ -221,30 +211,25 @@ def serialize_knowledge_item(
 def generate_handover(
     project_id: int,
     request: HandoverGenerateRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    project = (
-        db.query(Project)
-        .filter(Project.id == project_id)
-        .first()
-    )
+    
+    project = get_project_or_404(db, project_id)
 
-    if project is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Project not found.",
-        )
+    # Only project managers can generate handover reports.
+    # Workspace owners/admins are also recognized by this helper.
+    require_project_management(
+        db,
+        project,
+        current_user.id,
+    )
 
     memberships = get_project_memberships(db, project_id)
 
-    # Only an active owner/admin can generate the report.
-    require_project_admin(
-        memberships,
-        request.generated_by_user_id,
-    )
-
     # Validate the intended recipient, when supplied.
     if request.recipient_user_id is not None:
+
         recipient_membership = next(
             (
                 member
@@ -318,6 +303,7 @@ def generate_handover(
 
     # -----------------------------------------------------
     # Load evidence chunks and documents.
+    # Evidence is explicitly restricted to this project.
     # -----------------------------------------------------
 
     chunk_ids = set()
@@ -347,7 +333,14 @@ def generate_handover(
     if chunk_ids:
         chunks = (
             db.query(DocumentChunk)
-            .filter(DocumentChunk.id.in_(chunk_ids))
+            .join(
+                Document,
+                Document.id == DocumentChunk.document_id,
+            )
+            .filter(
+                DocumentChunk.id.in_(chunk_ids),
+                Document.project_id == project_id,
+            )
             .all()
         )
 
@@ -373,7 +366,10 @@ def generate_handover(
     if document_ids:
         documents = (
             db.query(Document)
-            .filter(Document.id.in_(document_ids))
+            .filter(
+                Document.id.in_(document_ids),
+                Document.project_id == project_id,
+            )
             .all()
         )
 
@@ -384,6 +380,7 @@ def generate_handover(
 
     # -----------------------------------------------------
     # Load user labels for project members and assignments.
+    # The creator is taken from the authenticated session.
     # -----------------------------------------------------
 
     user_ids = {
@@ -400,7 +397,8 @@ def generate_handover(
     if request.recipient_user_id is not None:
         user_ids.add(request.recipient_user_id)
 
-    user_ids.add(request.generated_by_user_id)
+    # Do not trust request.generated_by_user_id.
+    user_ids.add(current_user.id)
 
     users = []
 
@@ -638,10 +636,10 @@ def generate_handover(
         },
 
         "generated_by": {
-            "user_id": request.generated_by_user_id,
+            "user_id": current_user.id,
             "name": user_labels.get(
-                request.generated_by_user_id,
-                f"User #{request.generated_by_user_id}",
+                current_user.id,
+                f"User #{current_user.id}",
             ),
         },
 
@@ -684,15 +682,27 @@ def generate_handover(
     report = HandoverReport(
         project_id=project_id,
         recipient_user_id=request.recipient_user_id,
-        generated_by_user_id=request.generated_by_user_id,
+
+        # Always use the authenticated user as report creator.
+        generated_by_user_id=current_user.id,
+
         title=f"Handover Report - {project_name}",
         report_data=report_data,
         status="draft",
     )
 
-    db.add(report)
-    db.commit()
-    db.refresh(report)
+    try:
+        db.add(report)
+        db.commit()
+        db.refresh(report)
+
+    except Exception as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not generate the handover report.",
+        ) from exc
 
     return report
 
@@ -707,8 +717,17 @@ def generate_handover(
 )
 def list_handovers(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    project = get_project_or_404(db, project_id)
+
+    require_project_access(
+        db,
+        project,
+        current_user.id,
+    )
+
     return (
         db.query(HandoverReport)
         .filter(HandoverReport.project_id == project_id)
@@ -728,8 +747,17 @@ def list_handovers(
 def get_handover(
     project_id: int,
     report_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    project = get_project_or_404(db, project_id)
+
+    require_project_access(
+        db,
+        project,
+        current_user.id,
+    )
+
     report = (
         db.query(HandoverReport)
         .filter(
@@ -760,13 +788,16 @@ def review_handover(
     project_id: int,
     report_id: int,
     request: HandoverReviewRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    memberships = get_project_memberships(db, project_id)
+    project = get_project_or_404(db, project_id)
 
-    require_project_admin(
-        memberships,
-        request.reviewer_user_id,
+    # Only project managers can approve/reject a handover.
+    require_project_management(
+        db,
+        project,
+        current_user.id,
     )
 
     report = (
@@ -794,11 +825,23 @@ def review_handover(
         )
 
     report.status = request.decision
-    report.reviewed_by_user_id = request.reviewer_user_id
+
+    # Never trust request.reviewer_user_id.
+    report.reviewed_by_user_id = current_user.id
+
     report.reviewed_at = datetime.now(timezone.utc)
     report.review_notes = request.review_notes
 
-    db.commit()
-    db.refresh(report)
+    try:
+        db.commit()
+        db.refresh(report)
+
+    except Exception as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not save the handover review.",
+        ) from exc
 
     return report

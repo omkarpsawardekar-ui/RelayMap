@@ -7,3 +7,6 @@ from .knowledge_item import KnowledgeItem
 from .knowledge_relationship import KnowledgeRelationship
 from .handover_report import HandoverReport
 from app.models.github_item import GitHubItem
+from .workspace import Workspace
+from .workspace_member import WorkspaceMember
+from .workspace_invitation import WorkspaceInvitation

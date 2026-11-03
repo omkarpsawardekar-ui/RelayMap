@@ -12,7 +12,19 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models import Document, DocumentChunk, Project
+from app.core.dependencies import get_current_user
+from app.core.permissions import (
+    require_project_access,
+    require_project_write_access,
+)
+
+from app.models import (
+    Document,
+    DocumentChunk,
+    Project,
+    User,
+)
+
 from app.schemas.document import DocumentRead
 from app.schemas.document_chunk import DocumentChunkRead
 
@@ -26,11 +38,16 @@ from app.services.chunking_services import build_document_chunks
 
 logger = logging.getLogger(__name__)
 
+
 router = APIRouter(
     prefix="/api/projects/{project_id}/documents",
     tags=["Documents"],
 )
 
+
+# --------------------------------------------------
+# UPLOAD DOCUMENT
+# --------------------------------------------------
 
 @router.post(
     "",
@@ -41,8 +58,14 @@ async def upload_document(
     project_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Upload a document, extract text and create evidence chunks."""
+    """
+    Upload a document, extract text and create evidence chunks.
+
+    Only project owners, admins and members with write access
+    can upload documents.
+    """
 
     project = db.get(Project, project_id)
 
@@ -51,6 +74,13 @@ async def upload_document(
             status_code=404,
             detail="Project not found.",
         )
+
+    # Verify that the authenticated user can upload to this project.
+    require_project_write_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     upload_data = await store_and_extract_upload(
         file,
@@ -132,6 +162,10 @@ async def upload_document(
         ) from exc
 
 
+# --------------------------------------------------
+# GET PROJECT DOCUMENTS
+# --------------------------------------------------
+
 @router.get(
     "",
     response_model=list[DocumentRead],
@@ -139,8 +173,14 @@ async def upload_document(
 def get_project_documents(
     project_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """List all documents belonging to a project."""
+    """
+    List documents belonging to a project.
+
+    Only active project members and workspace owners/admins
+    can view these documents.
+    """
 
     project = db.get(Project, project_id)
 
@@ -149,6 +189,13 @@ def get_project_documents(
             status_code=404,
             detail="Project not found.",
         )
+
+    # Verify read access.
+    require_project_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     return (
         db.query(Document)
@@ -158,6 +205,10 @@ def get_project_documents(
     )
 
 
+# --------------------------------------------------
+# GET DOCUMENT EVIDENCE CHUNKS
+# --------------------------------------------------
+
 @router.get(
     "/{document_id}/chunks",
     response_model=list[DocumentChunkRead],
@@ -166,8 +217,14 @@ def get_document_chunks(
     project_id: int,
     document_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Inspect the evidence chunks belonging to a document."""
+    """
+    Inspect evidence chunks belonging to a document.
+
+    The user must have read access to the parent project,
+    and the document must belong to that project.
+    """
 
     project = db.get(Project, project_id)
 
@@ -176,6 +233,13 @@ def get_document_chunks(
             status_code=404,
             detail="Project not found.",
         )
+
+    # Verify read access before returning evidence.
+    require_project_access(
+        db,
+        project,
+        current_user.id,
+    )
 
     document = (
         db.query(Document)

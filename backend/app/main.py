@@ -1,59 +1,132 @@
-from fastapi import FastAPI, HTTPException
+import os
+
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.session import check_database_connection
+from app.core.dependencies import get_current_user
 
-from app.api import users, projects, documents, knowledge, continuity, relationships, handovers, github 
+from app.api import (
+    users,
+    projects,
+    documents,
+    knowledge,
+    continuity,
+    relationships,
+    handovers,
+    github,
+    auth,
+    workspaces,
+)
 
-# Initialize RelayMap application
+
+# --------------------------------------------------
+# APPLICATION INITIALIZATION
+# --------------------------------------------------
+
 app = FastAPI(
     title="RelayMap API",
     description="Evidence-First Project Continuity and Knowledge Handover Platform",
-    version="0.1.0"
+    version="0.1.0",
 )
 
 
-# Allow React frontend to communicate with FastAPI
+# --------------------------------------------------
+# CORS CONFIGURATION
+# --------------------------------------------------
+
+# Local development origins.
+local_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+# Production frontend origins.
+# Supports one or multiple comma-separated URLs.
+configured_origins = (
+    os.getenv("FRONTEND_URLS")
+    or os.getenv("FRONTEND_URL")
+    or ""
+)
+
+production_origins = [
+    origin.strip().rstrip("/")
+    for origin in configured_origins.split(",")
+    if origin.strip()
+]
+
+# Combine and remove duplicates.
+allowed_origins = list(
+    dict.fromkeys(local_origins + production_origins)
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
-app.include_router(users.router)
-app.include_router(projects.router)
-app.include_router(documents.router)
-app.include_router(knowledge.router)
-app.include_router(continuity.router)
-app.include_router(relationships.router)
-app.include_router(handovers.router)
-app.include_router(github.router)
 
-# Root endpoint
+# --------------------------------------------------
+# AUTHENTICATION AND ROUTER REGISTRATION
+# --------------------------------------------------
+
+# Require authentication for business API routers.
+# Authentication endpoints are registered separately
+# because login and initial password setup do not
+# require an existing JWT.
+
+auth_required = [Depends(get_current_user)]
+
+app.include_router(users.router, dependencies=auth_required)
+app.include_router(projects.router, dependencies=auth_required)
+app.include_router(documents.router, dependencies=auth_required)
+app.include_router(knowledge.router, dependencies=auth_required)
+app.include_router(continuity.router, dependencies=auth_required)
+app.include_router(relationships.router, dependencies=auth_required)
+app.include_router(handovers.router, dependencies=auth_required)
+app.include_router(github.router, dependencies=auth_required)
+
+# Authentication endpoints manage their own access requirements.
+app.include_router(auth.router)
+
+app.include_router(
+    workspaces.router,
+    dependencies=auth_required,
+)
+
+
+# --------------------------------------------------
+# ROOT ENDPOINT
+# --------------------------------------------------
+
 @app.get("/")
 def root():
     return {
         "message": "Welcome to RelayMap API",
-        "status": "running"
+        "status": "running",
     }
 
 
-# Backend health check
+# --------------------------------------------------
+# BACKEND HEALTH CHECK
+# --------------------------------------------------
+
 @app.get("/api/health")
 def health():
     return {
         "status": "ok",
-        "service": "RelayMap Backend"
+        "service": "RelayMap Backend",
     }
 
 
-# PostgreSQL connection health check
+# --------------------------------------------------
+# DATABASE HEALTH CHECK
+# --------------------------------------------------
+
 @app.get("/api/health/db")
 def database_health():
     try:
@@ -61,11 +134,11 @@ def database_health():
 
         return {
             "status": "connected",
-            "database": "PostgreSQL"
+            "database": "PostgreSQL",
         }
 
-    except SQLAlchemyError:
+    except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=503,
-            detail="Database connection failed"
-        )
+            detail="Database connection failed",
+        ) from exc

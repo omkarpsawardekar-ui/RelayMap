@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.db.base import Base
 
 # Import models so Alembic can detect them
-from app.models import User, Project, ProjectMember, Document, DocumentChunk, KnowledgeItem, KnowledgeRelationship, HandoverReport
+from app.models import User, Project, ProjectMember, Document, DocumentChunk, KnowledgeItem, KnowledgeRelationship, HandoverReport, GitHubItem, Workspace, WorkspaceMember, WorkspaceInvitation
 
 
 config = context.config

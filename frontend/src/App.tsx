@@ -20,10 +20,10 @@ import {
   ShieldCheck,
   Upload,
   Users,
-  UserPlus,
   X,
   Network,
   Sparkles,
+  MessageSquare,
 } from "lucide-react";
 
 import { api, getApiError } from "./services/api";
@@ -33,6 +33,7 @@ import ContinuityDashboard from "./components/ContinuityDashboard";
 import KnowledgeMap from "./components/KnowledgeMap";
 import HandoverDashboard from "./components/HandoverDashboard";
 import GitHubSyncPanel from "./components/GitHubSyncPanel";
+import AskRelayMap from "./components/AskRelayMap";
 
 import type {
   User,
@@ -49,7 +50,8 @@ type Page =
   | "knowledge"
   | "continuity"
   | "map"
-  | "handover";
+  | "handover"
+  | "ask";
 
 interface ProjectDocument {
   id: number;
@@ -61,6 +63,13 @@ interface ProjectDocument {
   sha256: string;
   extraction_status: string;
   uploaded_at: string;
+}
+
+interface WorkspaceOption {
+  id: number;
+  name: string;
+  description?: string | null;
+  role?: string;
 }
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -84,6 +93,9 @@ function App() {
 
   const [users, setUsers] = useState<User[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+const [selectedWorkspaceId, setSelectedWorkspaceId] =
+  useState<number | null>(null);
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
 
@@ -116,7 +128,6 @@ function App() {
   // FORM VISIBILITY
   // =====================================================
 
-  const [showUserForm, setShowUserForm] = useState(false);
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showMemberForm, setShowMemberForm] = useState(false);
 
@@ -124,16 +135,12 @@ function App() {
   // USER FORM
   // =====================================================
 
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-
   // =====================================================
   // PROJECT FORM
   // =====================================================
 
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
-  const [projectOwner, setProjectOwner] = useState("");
 
   // =====================================================
   // MEMBER FORM
@@ -177,11 +184,12 @@ function App() {
           api.get("/api/health/db"),
           api.get<User[]>("/api/users"),
           api.get<Project[]>("/api/projects"),
+          api.get<WorkspaceOption[]>("/api/workspaces"),
         ]);
 
         if (!active) return;
 
-        const [apiResult, dbResult, usersResult, projectsResult] =
+        const [apiResult, dbResult, usersResult, projectsResult, workspacesResult] =
           results;
 
         setApiStatus(
@@ -199,6 +207,22 @@ function App() {
         if (usersResult.status === "fulfilled") {
           setUsers(usersResult.value.data);
         }
+
+        if (workspacesResult.status === "fulfilled") {
+  const availableWorkspaces = workspacesResult.value.data;
+
+  setWorkspaces(availableWorkspaces);
+
+  const manageableWorkspace = availableWorkspaces.find(
+    (workspace) =>
+      !workspace.role ||
+      ["owner", "admin"].includes(workspace.role)
+  );
+
+  setSelectedWorkspaceId(
+    manageableWorkspace?.id ?? null
+  );
+}
 
         if (projectsResult.status === "fulfilled") {
           setProjects(projectsResult.value.data);
@@ -314,8 +338,6 @@ function App() {
 
     setError("");
     setSuccess("");
-
-    setShowUserForm(false);
     setShowProjectForm(false);
     setShowMemberForm(false);
   }
@@ -324,73 +346,49 @@ function App() {
   // REGISTER USER
   // =====================================================
 
-  async function handleCreateUser(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    setError("");
-    setSuccess("");
-    setSubmitting(true);
-
-    try {
-      const response = await api.post<User>("/api/users", {
-        full_name: fullName.trim(),
-        email: email.trim(),
-      });
-
-      setUsers((previous) => [...previous, response.data]);
-
-      setFullName("");
-      setEmail("");
-      setShowUserForm(false);
-
-      setSuccess(`${response.data.full_name} was registered successfully.`);
-    } catch (err) {
-      setError(getApiError(err));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   // =====================================================
   // CREATE PROJECT
   // =====================================================
 
+  
+
   async function handleCreateProject(
-    event: FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
+  event: FormEvent<HTMLFormElement>
+) {
+  event.preventDefault();
 
-    if (!projectOwner) {
-      setError("Please select a project owner.");
-      return;
-    }
+  if (selectedWorkspaceId === null) {
+  setError("Please select a workspace when creating a project.");
+  return;
+}
 
-    setError("");
-    setSuccess("");
-    setSubmitting(true);
+  setError("");
+  setSuccess("");
+  setSubmitting(true);
 
-    try {
-      const response = await api.post<Project>("/api/projects", {
-        name: projectName.trim(),
-        description: projectDescription.trim() || null,
-        created_by: Number(projectOwner),
-      });
+  try {
+    const response = await api.post<Project>("/api/projects", {
+      name: projectName.trim(),
+      description: projectDescription.trim() || null,
+      workspace_id: selectedWorkspaceId,
+    });
 
-      setProjects((previous) => [response.data, ...previous]);
-      setSelectedProjectId(response.data.id);
+    setProjects((previous) => [response.data, ...previous]);
+    setSelectedProjectId(response.data.id);
 
-      setProjectName("");
-      setProjectDescription("");
-      setProjectOwner("");
+    setProjectName("");
+    setProjectDescription("");
 
-      setShowProjectForm(false);
-      setSuccess("Project created successfully.");
-    } catch (err) {
-      setError(getApiError(err));
-    } finally {
-      setSubmitting(false);
-    }
+    setShowProjectForm(false);
+    setSuccess("Project created successfully.");
+  } catch (err) {
+    setError(getApiError(err));
+  } finally {
+    setSubmitting(false);
   }
+}
+
+
 
   // =====================================================
   // ADD PROJECT MEMBER
@@ -842,6 +840,39 @@ function App() {
             Knowledge Review
           </button>
 
+          {/* ======================================
+    ASK RELAYMAP PAGE
+====================================== */}
+
+{activePage === "ask" && (
+  selectedProjectId !== null ? (
+    <AskRelayMap projectId={selectedProjectId} />
+  ) : (
+    <div className="empty-state">
+      <MessageSquare size={38} />
+      <h3>No project selected</h3>
+      <p>Select a project before asking questions.</p>
+
+      <button
+        type="button"
+        className="primary-button"
+        onClick={() => navigateTo("overview")}
+      >
+        Go to Overview
+      </button>
+    </div>
+  )
+)}
+
+          <button
+  type="button"
+  className={`nav-item ${activePage === "ask" ? "active" : ""}`}
+  onClick={() => navigateTo("ask")}
+>
+  <MessageSquare size={19} />
+  Ask RelayMap
+</button>
+
           <button
             type="button"
             className={`nav-item ${activePage === "continuity" ? "active" : ""}`}
@@ -891,53 +922,41 @@ function App() {
         <header className="topbar">
           <div>
             <span className="breadcrumb">
-              Workspace /{" "}
-              {activePage === "overview"
-                ? "Overview"
-                : activePage === "team"
-                ? "Team Members"
-                : activePage === "sources"
-                ? "Data Sources"
-                : activePage === "knowledge"
-                ? "Knowledge Review"
-                : activePage === "continuity"
-                ? "Continuity Dashboard"
-                : activePage === "map"
-                ? "Knowledge Map"
-                : "Handover Center"}
-            </span>
+  Workspace /{" "}
+  {activePage === "overview"
+    ? "Overview"
+    : activePage === "team"
+    ? "Team Members"
+    : activePage === "sources"
+    ? "Data Sources"
+    : activePage === "knowledge"
+    ? "Knowledge Review"
+    : "Ask RelayMap"}
+</span>
 
-            <h1>
-              {activePage === "overview"
-                ? "Project Overview"
-                : activePage === "team"
-                ? "Team Members"
-                : activePage === "sources"
-                ? "Data Sources"
-                : activePage === "knowledge"
-                ? "Knowledge Review"
-                : activePage === "continuity"
-                ? "Continuity Dashboard"
-                : activePage === "map"
-                ? "Knowledge Map"
-                : "Handover Center"}
-            </h1>
+<h1>
+  {activePage === "overview"
+    ? "Project Overview"
+    : activePage === "team"
+    ? "Team Members"
+    : activePage === "sources"
+    ? "Data Sources"
+    : activePage === "knowledge"
+    ? "Knowledge Review"
+    : "Ask RelayMap"}
+</h1>
 
-            <p>
-              {activePage === "overview"
-                ? "Manage your projects and preserve team knowledge."
-                : activePage === "team"
-                ? "Manage project members and their responsibilities."
-                : activePage === "sources"
-                ? "Upload documents and reconstruct project knowledge."
-                : activePage === "knowledge"
-                ? "Verify extracted information against original evidence."
-                : activePage === "continuity"
-                ? "Identify potential ownership gaps before a team member leaves."
-                : activePage === "map"
-                ? "Explore connections across your project knowledge."
-                : "Generate, review and approve evidence-backed handovers."}
-            </p>
+<p>
+  {activePage === "overview"
+    ? "Manage your projects and preserve team knowledge."
+    : activePage === "team"
+    ? "Manage project members and their responsibilities."
+    : activePage === "sources"
+    ? "Upload documents and reconstruct project knowledge."
+    : activePage === "knowledge"
+    ? "Verify extracted information against original evidence."
+    : "Ask questions using approved, evidence-backed project knowledge."}
+</p>
           </div>
 
           <button
@@ -1032,9 +1051,10 @@ function App() {
                   <Users size={21} />
                 </div>
 
-                <span>Team Members</span>
+                <span>Workspace Users</span>
+
                 <h2>{users.length}</h2>
-                <small>Registered users</small>
+                <small>Users across your workspaces</small>
               </div>
 
               <div className="stat-card">
@@ -1062,25 +1082,13 @@ function App() {
 
               <div className="action-buttons">
 
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => {
-                    setShowUserForm(!showUserForm);
-                    setShowProjectForm(false);
-                    setShowMemberForm(false);
-                  }}
-                >
-                  <UserPlus size={17} />
-                  Add User
-                </button>
+                
 
                 <button
                   type="button"
                   className="primary-button"
                   onClick={() => {
                     setShowProjectForm(!showProjectForm);
-                    setShowUserForm(false);
                     setShowMemberForm(false);
                   }}
                 >
@@ -1093,49 +1101,6 @@ function App() {
             </section>
 
             {/* REGISTER USER */}
-
-            {showUserForm && (
-              <form className="form-card" onSubmit={handleCreateUser}>
-
-                <div className="form-title">
-                  <h3>Register Team Member</h3>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowUserForm(false)}
-                    aria-label="Close form"
-                  >
-                    <X size={19} />
-                  </button>
-                </div>
-
-                <label>Full Name</label>
-
-                <input
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Enter full name"
-                  minLength={2}
-                  maxLength={120}
-                  required
-                />
-
-                <label>Email Address</label>
-
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  required
-                />
-
-                <button className="primary-button" disabled={submitting}>
-                  {submitting ? "Adding..." : "Register User"}
-                </button>
-
-              </form>
-            )}
 
             {/* CREATE PROJECT */}
 
@@ -1174,28 +1139,42 @@ function App() {
                   rows={3}
                 />
 
-                <label>Project Owner</label>
+                <label>Select Workspace</label>
 
-                <select
-                  value={projectOwner}
-                  onChange={(e) => setProjectOwner(e.target.value)}
-                  required
-                >
-                  <option value="">Select project owner</option>
+<select
+  value={selectedWorkspaceId ?? ""}
+  onChange={(e) =>
+    setSelectedWorkspaceId(
+      e.target.value ? Number(e.target.value) : null
+    )
+  }
+  required
+>
+  <option value="">Choose a workspace</option>
 
-                  {users.filter((user) => user.is_active).map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.full_name} — {user.email}
-                    </option>
-                  ))}
-                </select>
+  {workspaces
+    .filter(
+      (workspace) =>
+        !workspace.role ||
+        ["owner", "admin"].includes(workspace.role)
+    )
+    .map((workspace) => (
+      <option key={workspace.id} value={workspace.id}>
+        {workspace.name}
+      </option>
+    ))}
+</select>
+
+<p className="form-hint">
+  The project will be created inside this workspace.
+</p>
 
                 <button
-                  className="primary-button"
-                  disabled={submitting || users.length === 0}
-                >
-                  {submitting ? "Creating..." : "Create Project"}
-                </button>
+  className="primary-button"
+  disabled={submitting || workspaces.length === 0}
+>
+  {submitting ? "Creating..." : "Create Project"}
+</button>
 
               </form>
             )}
@@ -1320,6 +1299,7 @@ function App() {
                     <div className="details-divider" />
 
                     <h3>Project Documents</h3>
+
 
                     <p className="muted-text">
                       {documents.length} documents uploaded

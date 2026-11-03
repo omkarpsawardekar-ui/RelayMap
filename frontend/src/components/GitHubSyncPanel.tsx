@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Search,
+  Sparkles,
 } from "lucide-react";
 
 import { api, getApiError } from "../services/api";
@@ -49,6 +50,18 @@ type SyncSummary = {
   pagination_note?: string;
 };
 
+type ExtractionSummary = {
+  message: string;
+  project_id: number;
+  records_processed: number;
+  documents_created: number;
+  chunks_created: number;
+  candidates_created: number;
+  duplicates_skipped: number;
+  review_status: string;
+  important_note?: string;
+};
+
 type Props = {
   projectId: number;
 };
@@ -67,6 +80,8 @@ export default function GitHubSyncPanel({ projectId }: Props) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [summary, setSummary] = useState<SyncSummary | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionSummary, setExtractionSummary] = useState<ExtractionSummary | null>(null);
   const [repositoryInfo, setRepositoryInfo] = useState<any>(null);
 
   const [filter, setFilter] = useState<"all" | "issue" | "pull_request">(
@@ -167,6 +182,39 @@ export default function GitHubSyncPanel({ projectId }: Props) {
       setSyncing(false);
     }
   }
+
+  async function createKnowledgeCandidates() {
+  setExtracting(true);
+  setError("");
+  setMessage("");
+  setExtractionSummary(null);
+
+  try {
+    const response = await api.post<ExtractionSummary>(
+      `/api/projects/${projectId}/github/extract`
+    );
+
+    const result = response.data;
+
+    setExtractionSummary(result);
+
+    if (result.candidates_created > 0) {
+      setMessage(
+        `${result.candidates_created} knowledge candidate(s) created successfully!`
+      );
+    } else {
+      setMessage(
+        "Extraction completed, but no new candidates were created. Check the source content or whether these records were already extracted."
+      );
+    }
+  } catch (err) {
+    setError(
+      `Could not extract GitHub knowledge: ${getApiError(err)}`
+    );
+  } finally {
+    setExtracting(false);
+  }
+}
 
   const visibleItems = items.filter((item) => {
     if (filter === "all") return true;
@@ -327,6 +375,76 @@ export default function GitHubSyncPanel({ projectId }: Props) {
 
         </div>
       )}
+
+      {/* GITHUB KNOWLEDGE EXTRACTION */}
+
+<div className="github-extraction-panel">
+  <div className="github-extraction-heading">
+    <div>
+      <h4>Knowledge Reconstruction</h4>
+      <p>
+        Convert imported GitHub issues and pull requests into
+        evidence-backed knowledge candidates.
+      </p>
+    </div>
+
+    <Sparkles size={21} />
+  </div>
+
+  <button
+    type="button"
+    className="github-extract-button"
+    onClick={() => void createKnowledgeCandidates()}
+    disabled={extracting || syncing || loading || total === 0}
+  >
+    {extracting ? (
+      <RefreshCw className="github-spin" size={16} />
+    ) : (
+      <Sparkles size={16} />
+    )}
+
+    {extracting
+      ? "Creating Candidates..."
+      : "Create Knowledge Candidates"}
+  </button>
+
+  {total === 0 && (
+    <p className="github-extraction-hint">
+      Synchronize a repository before extracting its knowledge.
+    </p>
+  )}
+
+  {extractionSummary && (
+    <div className="github-extraction-results">
+      <div>
+        <strong>{extractionSummary.records_processed}</strong>
+        <span>Records processed</span>
+      </div>
+
+      <div>
+        <strong>{extractionSummary.documents_created}</strong>
+        <span>Sources created</span>
+      </div>
+
+      <div>
+        <strong>{extractionSummary.chunks_created}</strong>
+        <span>Evidence chunks</span>
+      </div>
+
+      <div>
+        <strong>{extractionSummary.candidates_created}</strong>
+        <span>New candidates</span>
+      </div>
+    </div>
+  )}
+
+  {extractionSummary && (
+    <p className="github-extraction-hint">
+      These candidates have status Pending. Review them in
+      Knowledge Review before treating them as verified facts.
+    </p>
+  )}
+</div>
 
       <div className="github-imported-section">
 

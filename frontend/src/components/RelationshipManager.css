@@ -1,11 +1,21 @@
 
+/* =========================================================
+   RELAYMAP — RELATIONSHIP MANAGER
+   Modern light theme | Two-column evidence workspace
+========================================================= */
+
 .relationship-manager {
   display: flex;
   flex-direction: column;
   gap: 18px;
   min-width: 0;
+  width: 100%;
   margin-top: 24px;
 }
+
+/* =========================================================
+   HEADER
+========================================================= */
 
 .relationship-manager-heading {
   display: flex;
@@ -28,7 +38,8 @@
 .relationship-manager-heading h3 {
   margin: 0 0 7px;
   color: #2b4140;
-  font-size: 17px;
+  font-size: 18px;
+  font-weight: 750;
 }
 
 .relationship-manager-heading p {
@@ -39,24 +50,64 @@
   line-height: 1.7;
 }
 
-.relationship-refresh {
+.relationship-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.relationship-refresh,
+.relationship-suggest-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   flex-shrink: 0;
-  padding: 9px 12px;
-  border: 1px solid #dfe8e5;
+  padding: 10px 13px;
   border-radius: 8px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.relationship-refresh {
+  border: 1px solid #dfe8e5;
   background: white;
   color: #426c64;
-  font-size: 10px;
-  cursor: pointer;
+}
+
+.relationship-refresh:hover {
+  background: #f0f8f4;
 }
 
 .relationship-refresh:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.relationship-suggest-button {
+  border: 0;
+  background: #207f71;
+  color: white;
+}
+
+.relationship-suggest-button:hover {
+  background: #176e61;
+  transform: translateY(-1px);
+}
+
+.relationship-suggest-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* =========================================================
+   SUMMARY
+========================================================= */
 
 .relationship-summary {
   display: grid;
@@ -68,10 +119,11 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 14px;
+  padding: 15px;
   background: white;
   border: 1px solid #e4ebe8;
-  border-radius: 9px;
+  border-radius: 10px;
+  box-shadow: 0 3px 12px rgba(20, 60, 45, 0.035);
 }
 
 .relationship-summary span {
@@ -82,18 +134,24 @@
 .relationship-summary strong {
   color: #345a50;
   font-size: 23px;
+  font-weight: 800;
 }
+
+/* =========================================================
+   FORM CARD
+========================================================= */
 
 .relationship-form-card,
 .relationship-list-section {
   display: flex;
   flex-direction: column;
-  gap: 15px;
-  padding: 18px;
+  gap: 16px;
+  padding: 21px;
   border: 1px solid #e3ebe7;
-  border-radius: 11px;
+  border-radius: 12px;
   background: white;
   min-width: 0;
+  box-shadow: 0 4px 16px rgba(20, 60, 45, 0.035);
 }
 
 .relationship-section-title {
@@ -110,7 +168,8 @@
 .relationship-section-title h4 {
   margin: 0 0 5px;
   color: #354947;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 750;
 }
 
 .relationship-section-title p {
@@ -120,134 +179,263 @@
   line-height: 1.6;
 }
 
+.relationship-muted {
+  color: #879692;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* =========================================================
+   TWO-COLUMN RELATIONSHIP FORM
+   LEFT: controls
+   RIGHT: supporting evidence
+========================================================= */
+
 .relationship-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.relationship-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 13px;
-}
-
-.relationship-fields > div,
-.relationship-form > div:not(.relationship-evidence) {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  min-width: 0;
-}
-
-.relationship-form label {
-  color: #667a74;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.relationship-form select {
+  grid-template-columns:
+    minmax(0, 1.1fr)
+    minmax(320px, 0.9fr);
+  grid-template-areas:
+    "fields evidence"
+    "reviewer evidence"
+    "submit evidence";
+  align-items: stretch;
+  gap: 16px 22px;
   width: 100%;
   min-width: 0;
-  padding: 10px 11px;
+}
+
+/* Left-side dropdown grid */
+
+.relationship-fields {
+  grid-area: fields;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 15px;
+  min-width: 0;
+}
+
+.relationship-fields > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Reviewer field on the left */
+
+.relationship-form > div:not(.relationship-fields):not(.relationship-evidence) {
+  grid-area: reviewer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  align-self: start;
+}
+
+/* Labels */
+
+.relationship-form label {
+  color: #526d66;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+/* Dropdowns */
+
+.relationship-form select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 43px;
+  padding: 10px 12px;
   border: 1px solid #dfe8e4;
-  border-radius: 7px;
-  background: #fff;
+  border-radius: 8px;
+  background: #ffffff;
   color: #3b504b;
-  font: inherit;
-  font-size: 10px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .relationship-form select:focus {
-  outline: none;
   border-color: #69aa9a;
   box-shadow: 0 0 0 3px #eaf5f1;
 }
 
-.relationship-form small {
-  color: #8c9b96;
-  font-size: 9px;
-  line-height: 1.5;
+.relationship-form select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
-.relationship-evidence {
-  padding: 13px;
-  border: 1px solid #e5ece8;
-  border-radius: 8px;
-  background: #f8faf9;
+.relationship-form select option {
+  background: white;
+  color: #3b504b;
 }
+
+.relationship-form small {
+  color: #8c9b96;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* =========================================================
+   RIGHT-HAND SUPPORTING EVIDENCE PANEL
+========================================================= */
+
+.relationship-evidence {
+  grid-area: evidence;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 280px;
+  padding: 19px;
+  border: 1px solid #dcebe4;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #f8fcf9, #f0f8f4);
+  overflow: hidden;
+}
+
+/* Evidence heading */
 
 .relationship-evidence-heading {
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: #47766a;
-  font-size: 10px;
-  margin-bottom: 9px;
+  gap: 9px;
+  margin-bottom: 15px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid #dfebe4;
+  color: #368674;
 }
+
+.relationship-evidence-heading svg {
+  flex-shrink: 0;
+}
+
+.relationship-evidence-heading strong {
+  color: #326c5d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* Full-width readable source text */
 
 .relationship-evidence > p {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 340px;
   margin: 0;
-  color: #596e68;
-  font-size: 10px;
-  line-height: 1.8;
+  padding: 15px;
+  border: 1px solid #e5eee8;
+  border-radius: 8px;
+  background: white;
+  color: #526e64;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.9;
+  text-align: left;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 190px;
+  word-break: normal;
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
+/* Source document information */
+
 .relationship-evidence-source {
-  border-top: 1px solid #e5ece8;
-  margin-top: 10px;
-  padding-top: 9px;
-  color: #7e918a;
-  font-size: 9px;
+  display: block;
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid #e3ece5;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #728b80;
+  font-size: 10px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .relationship-evidence > small {
   display: block;
-  margin-top: 9px;
-  color: #9a8b69;
-  font-size: 9px;
-  line-height: 1.6;
+  margin-top: auto;
+  padding-top: 14px;
+  color: #85978d;
+  font-size: 10px;
+  line-height: 1.7;
 }
 
+/* =========================================================
+   CREATE BUTTON — LEFT SIDE
+========================================================= */
+
 .relationship-create-button {
+  grid-area: submit;
   display: inline-flex;
   justify-content: center;
   align-items: center;
+  align-self: start;
   gap: 8px;
-  align-self: flex-start;
-  padding: 11px 15px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 12px 17px;
   border: 0;
-  border-radius: 7px;
-  background: #207f71;
+  border-radius: 8px;
+  background: #238775;
   color: white;
-  font-size: 10px;
-  font-weight: 700;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 750;
   cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
 .relationship-create-button:hover {
   background: #176e61;
+  transform: translateY(-1px);
 }
 
 .relationship-create-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  transform: none;
 }
+
+/* =========================================================
+   PENDING AND APPROVED RELATIONSHIPS
+========================================================= */
 
 .relationship-list {
   display: grid;
-  gap: 11px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
 }
 
 .relationship-card {
-  padding: 14px;
+  min-width: 0;
+  padding: 15px;
   border: 1px solid #e8ecea;
-  border-radius: 9px;
-  background: #fff;
+  border-radius: 10px;
+  background: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.relationship-card:hover {
+  border-color: #cfe5d9;
+  box-shadow: 0 4px 13px rgba(20, 60, 45, 0.045);
 }
 
 .relationship-card-label {
@@ -256,16 +444,16 @@
   justify-content: space-between;
   gap: 9px;
   flex-wrap: wrap;
-  margin-bottom: 11px;
+  margin-bottom: 12px;
 }
 
 .relationship-card-label > span {
-  padding: 5px 8px;
+  padding: 5px 9px;
   border-radius: 15px;
   background: #eef4f9;
   color: #577b9a;
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 750;
   text-transform: capitalize;
 }
 
@@ -282,45 +470,61 @@
   color: #398576;
 }
 
+.relationship-pair svg {
+  flex-shrink: 0;
+}
+
 .relationship-pair strong {
+  min-width: 0;
   color: #38514a;
   font-size: 11px;
-  line-height: 1.6;
+  line-height: 1.7;
   overflow-wrap: anywhere;
 }
 
+/* Evidence inside pending relationship cards */
+
 .relationship-card-evidence {
-  margin-top: 12px;
-  padding: 11px;
+  margin-top: 13px;
+  padding: 12px;
   border: 1px solid #e9efec;
   border-radius: 8px;
   background: #f8faf9;
+  min-width: 0;
 }
 
 .relationship-card-evidence p {
+  width: 100%;
+  max-height: 135px;
   margin: 0;
   color: #62736d;
   font-size: 10px;
-  line-height: 1.7;
+  line-height: 1.8;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  overflow-y: auto;
+  writing-mode: horizontal-tb;
 }
 
 .relationship-card-evidence > span {
   display: block;
-  margin-top: 9px;
-  padding-top: 8px;
+  margin-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid #e6ece9;
   color: #8b9994;
   font-size: 9px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
+
+/* Approve/reject actions */
 
 .relationship-card-actions {
   display: flex;
   align-items: center;
   gap: 9px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: 13px;
 }
 
 .relationship-card-actions button {
@@ -328,12 +532,14 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 11px;
+  padding: 9px 12px;
   border: 0;
   border-radius: 7px;
+  font-family: inherit;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 750;
   cursor: pointer;
+  transition: background 0.2s ease;
 }
 
 .relationship-card-actions button:disabled {
@@ -346,9 +552,17 @@
   color: #297d58;
 }
 
+.relationship-approve:hover {
+  background: #d8f0e2;
+}
+
 .relationship-reject {
   background: #fff0ef;
   color: #b04d4d;
+}
+
+.relationship-reject:hover {
+  background: #ffe2df;
 }
 
 .relationship-card-actions > span {
@@ -356,13 +570,18 @@
   font-size: 9px;
 }
 
+/* =========================================================
+   APPROVED CONNECTIONS
+========================================================= */
+
 .relationship-approved-card {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
+  gap: 11px;
+  min-width: 0;
+  padding: 13px;
   border: 1px solid #e1ece5;
-  border-radius: 8px;
+  border-radius: 9px;
   background: #f8fbf8;
   color: #32916a;
 }
@@ -374,13 +593,13 @@
 
 .relationship-approved-card > div {
   display: grid;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
 }
 
 .relationship-approved-card strong {
   color: #466456;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -392,12 +611,16 @@
   overflow-wrap: anywhere;
 }
 
+/* =========================================================
+   EMPTY STATES
+========================================================= */
+
 .relationship-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 23px;
+  gap: 9px;
+  padding: 27px 20px;
   color: #77a092;
   text-align: center;
 }
@@ -410,101 +633,128 @@
 .relationship-empty span {
   color: #8b9994;
   font-size: 10px;
-}
-
-.relationship-muted {
-  color: #879692;
-  font-size: 11px;
-}
-
-.relationship-alert {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 13px;
-  border-radius: 8px;
-  font-size: 10px;
   line-height: 1.6;
 }
 
+/* =========================================================
+   ALERTS
+========================================================= */
+
+.relationship-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.relationship-alert svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 .relationship-error {
+  border: 1px solid #f1d6d3;
   color: #a94b4b;
   background: #fff0ef;
 }
 
 .relationship-success {
+  border: 1px solid #d3ecdc;
   color: #287e5b;
   background: #eaf7ef;
 }
 
+/* =========================================================
+   INFORMATION NOTE
+========================================================= */
+
 .relationship-note {
-  padding: 12px 14px;
+  padding: 13px 15px;
   border: 1px solid #e5ece8;
-  border-radius: 8px;
+  border-radius: 9px;
   background: #f8faf9;
   color: #7c8d85;
   font-size: 10px;
-  line-height: 1.7;
+  line-height: 1.8;
 }
 
 .relationship-note strong {
   color: #456d5d;
 }
 
+/* =========================================================
+   TABLET — STACK THE EVIDENCE UNDER THE FORM
+========================================================= */
+
+@media (max-width: 900px) {
+  .relationship-form {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "fields"
+      "evidence"
+      "reviewer"
+      "submit";
+  }
+
+  .relationship-evidence {
+    min-height: 220px;
+  }
+
+  .relationship-evidence > p {
+    max-height: 280px;
+  }
+
+  .relationship-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
 @media (max-width: 650px) {
   .relationship-manager-heading {
     flex-direction: column;
   }
 
+  .relationship-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .relationship-summary {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .relationship-fields {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .relationship-create-button {
+    width: 100%;
   }
 
   .relationship-pair {
     flex-direction: column;
     align-items: flex-start;
   }
+
+  .relationship-form-card,
+  .relationship-list-section {
+    padding: 15px;
+  }
 }
 
-.relationship-heading-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
+@media (max-width: 420px) {
+  .relationship-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
-.relationship-suggest-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 10px 13px;
-  border: 0;
-  border-radius: 8px;
-  background: #207f71;
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.relationship-suggest-button:hover {
-  background: #176e61;
-}
-
-.relationship-suggest-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-@media (max-width: 650px) {
-  .relationship-heading-actions {
-    width: 100%;
-    justify-content: flex-start;
+  .relationship-evidence {
+    padding: 13px;
   }
 }

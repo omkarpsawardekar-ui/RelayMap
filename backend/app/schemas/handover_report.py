@@ -4,16 +4,29 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class HandoverGenerateRequest(BaseModel):
-    generated_by_user_id: int = Field(gt=0)
-    recipient_user_id: int | None = Field(default=None, gt=0)
+# ---------------------------------------------------------
+# GENERATE HANDOVER REQUEST
+# ---------------------------------------------------------
 
+class HandoverGenerateRequest(BaseModel):
+    recipient_user_id: int | None = Field(
+        default=None,
+        gt=0,
+    )
+
+
+# ---------------------------------------------------------
+# REVIEW HANDOVER REQUEST
+# ---------------------------------------------------------
 
 class HandoverReviewRequest(BaseModel):
-    reviewer_user_id: int = Field(gt=0)
     decision: Literal["approved", "rejected"]
-    review_notes: str | None = Field(default=None, max_length=5000)
+    review_notes: str | None = None
 
+
+# ---------------------------------------------------------
+# HANDOVER REPORT RESPONSE
+# ---------------------------------------------------------
 
 class HandoverReportRead(BaseModel):
     id: int

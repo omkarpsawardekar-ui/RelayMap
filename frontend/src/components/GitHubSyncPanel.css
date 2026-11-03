@@ -478,3 +478,108 @@
     flex-wrap: wrap;
   }
 }
+
+/* =========================================
+   GITHUB KNOWLEDGE EXTRACTION
+========================================= */
+
+.github-extraction-panel {
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid #376257;
+  border-radius: 10px;
+  background: #0c2524;
+}
+
+.github-extraction-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.github-extraction-heading h4 {
+  margin: 0 0 6px;
+  color: #dff2e9;
+  font-size: 13px;
+}
+
+.github-extraction-heading p {
+  margin: 0;
+  color: #91afa3;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.github-extraction-heading svg {
+  flex-shrink: 0;
+  color: #79d9b7;
+}
+
+.github-extract-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #439a7d;
+  border-radius: 8px;
+  background: #205c49;
+  color: #c3f2dc;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.github-extract-button:hover {
+  background: #28755a;
+}
+
+.github-extract-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.github-extraction-results {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.github-extraction-results div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 7px;
+  background: #163b34;
+  border-radius: 7px;
+  min-width: 0;
+}
+
+.github-extraction-results strong {
+  color: #b6efd5;
+  font-size: 19px;
+}
+
+.github-extraction-results span {
+  color: #9cbbb0;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.github-extraction-hint {
+  margin: 11px 0 0;
+  color: #a0c6b5;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+@media (max-width: 500px) {
+  .github-extraction-results {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

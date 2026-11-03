@@ -13,6 +13,7 @@ import {
 
 import { api, getApiError } from "../services/api";
 import "./ContinuityDashboard.css";
+import ContinuityAIAnalysis from "./ContinuityAIAnalysis";
 
 interface ContinuityMember {
   id: number;
@@ -334,7 +335,7 @@ function ContinuityDashboard({ projectId }: ContinuityDashboardProps) {
           </div>
         )}
       </section>
-
+        <ContinuityAIAnalysis projectId={projectId} />
       <div className="continuity-note">
         <strong>Human decision required.</strong> This report identifies
         potential ownership gaps from approved records only. It does not

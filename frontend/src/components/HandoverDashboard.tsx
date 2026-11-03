@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
@@ -34,6 +35,13 @@ type Props = {
   projectId: number;
 };
 
+type ProjectMemberOption = {
+  user_id: number;
+  full_name: string;
+  role: string;
+  membership_status: string;
+};
+
 const formatDate = (value?: string | null) => {
   if (!value) return "Not available";
 
@@ -58,14 +66,19 @@ export default function HandoverDashboard({ projectId }: Props) {
     null
   );
 
-  const [generatorId, setGeneratorId] = useState("");
+  // Project members for the recipient dropdown.
+  const [members, setMembers] = useState<ProjectMemberOption[]>([]);
   const [recipientId, setRecipientId] = useState("");
-  const [reviewerId, setReviewerId] = useState("");
+
+  // Review notes.
   const [reviewNotes, setReviewNotes] = useState("");
 
+  // Loading states.
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+
+  // Messages.
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -108,6 +121,10 @@ export default function HandoverDashboard({ projectId }: Props) {
     ? reportData.quality_and_limitations
     : [];
 
+  // --------------------------------------------------
+  // LOAD SAVED HANDOVER REPORTS
+  // --------------------------------------------------
+
   async function loadReports() {
     if (!projectId) return;
 
@@ -143,48 +160,81 @@ export default function HandoverDashboard({ projectId }: Props) {
     void loadReports();
   }, [projectId]);
 
+  // --------------------------------------------------
+  // LOAD ACTIVE PROJECT MEMBERS
+  // --------------------------------------------------
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadProjectMembers() {
+      setMembers([]);
+      setRecipientId("");
+
+      if (!projectId) return;
+
+      try {
+        const response = await api.get<ProjectMemberOption[]>(
+          `/api/projects/${projectId}/members`
+        );
+
+        if (!active) return;
+
+        const data: ProjectMemberOption[] = Array.isArray(response.data)
+          ? response.data
+          : [];
+
+        // Only active project members can receive handovers.
+        setMembers(
+          data.filter(
+            (member) => member.membership_status === "active"
+          )
+        );
+      } catch (err) {
+        if (active) {
+          setMembers([]);
+          setError(getApiError(err));
+        }
+      }
+    }
+
+    void loadProjectMembers();
+
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
+
+  // --------------------------------------------------
+  // GENERATE HANDOVER DRAFT
+  // --------------------------------------------------
+
   async function generateReport() {
     setError("");
     setMessage("");
+    setGenerating(true);
 
-    const generatedBy = Number(generatorId);
-    const recipient = recipientId.trim()
+    const recipient = recipientId
       ? Number(recipientId)
       : null;
-
-    if (!Number.isInteger(generatedBy) || generatedBy <= 0) {
-      setError("Enter a valid generator user ID.");
-      return;
-    }
-
-    if (
-      recipient !== null &&
-      (!Number.isInteger(recipient) || recipient <= 0)
-    ) {
-      setError("Enter a valid recipient user ID, or leave it empty.");
-      return;
-    }
-
-    setGenerating(true);
 
     try {
       const response = await api.post(
         `/api/projects/${projectId}/handovers`,
         {
-          generated_by_user_id: generatedBy,
           recipient_user_id: recipient,
         }
       );
 
       const newReport: HandoverReport = response.data;
 
-      setReviewerId(String(generatedBy));
       setSelectedReportId(newReport.id);
       setMessage("Handover draft generated successfully!");
 
       await loadReports();
 
       setSelectedReportId(newReport.id);
+
     } catch (err) {
       setError(getApiError(err));
     } finally {
@@ -192,15 +242,14 @@ export default function HandoverDashboard({ projectId }: Props) {
     }
   }
 
-  async function reviewReport(decision: "approved" | "rejected") {
+  // --------------------------------------------------
+  // APPROVE OR REJECT HANDOVER
+  // --------------------------------------------------
+
+  async function reviewReport(
+    decision: "approved" | "rejected"
+  ) {
     if (!selectedReport) return;
-
-    const reviewer = Number(reviewerId);
-
-    if (!Number.isInteger(reviewer) || reviewer <= 0) {
-      setError("Enter a valid reviewer user ID.");
-      return;
-    }
 
     setError("");
     setMessage("");
@@ -210,7 +259,6 @@ export default function HandoverDashboard({ projectId }: Props) {
       await api.patch(
         `/api/projects/${projectId}/handovers/${selectedReport.id}/review`,
         {
-          reviewer_user_id: reviewer,
           decision,
           review_notes: reviewNotes.trim() || null,
         }
@@ -223,7 +271,9 @@ export default function HandoverDashboard({ projectId }: Props) {
       );
 
       setReviewNotes("");
+
       await loadReports();
+
     } catch (err) {
       setError(getApiError(err));
     } finally {
@@ -231,12 +281,19 @@ export default function HandoverDashboard({ projectId }: Props) {
     }
   }
 
+  // --------------------------------------------------
+  // EXPORT HANDOVER AS MARKDOWN
+  // --------------------------------------------------
+
   function downloadMarkdown() {
     if (!selectedReport) return;
 
     const lines: string[] = [];
 
-    const addSection = (heading: string, body: string[]) => {
+    const addSection = (
+      heading: string,
+      body: string[]
+    ) => {
       lines.push(`## ${heading}`, "", ...body, "");
     };
 
@@ -244,8 +301,11 @@ export default function HandoverDashboard({ projectId }: Props) {
       `# ${selectedReport.title}`,
       "",
       `**Status:** ${formatStatus(selectedReport.status)}`,
+      "",
       `**Generated:** ${formatDate(reportData.generated_at)}`,
+      "",
       `**Project:** ${reportData.project?.name ?? `Project ${projectId}`}`,
+      "",
       `**Recipient:** ${reportData.recipient?.name ?? "Not specified"}`,
       ""
     );
@@ -322,22 +382,31 @@ export default function HandoverDashboard({ projectId }: Props) {
     addSection(
       "Unresolved questions",
       questions.length
-        ? questions.map((item: any) => `- ${item.title}`)
+        ? questions.map(
+            (item: any) => `- ${item.title}`
+          )
         : ["No unresolved questions found."]
     );
 
     addSection(
       "Recommended next steps",
-      nextSteps.map((step: string) => `- ${step}`)
+      nextSteps.map(
+        (step: string) => `- ${step}`
+      )
     );
 
     addSection(
       "Quality and limitations",
-      qualityNotes.map((note: string) => `- ${note}`)
+      qualityNotes.map(
+        (note: string) => `- ${note}`
+      )
     );
 
     if (selectedReport.review_notes) {
-      addSection("Review notes", [selectedReport.review_notes]);
+      addSection(
+        "Review notes",
+        [selectedReport.review_notes]
+      );
     }
 
     lines.push(
@@ -346,9 +415,12 @@ export default function HandoverDashboard({ projectId }: Props) {
       "*This report contains approved project records and evidence references. Recommendations are suggestions, not verified project facts.*"
     );
 
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/markdown;charset=utf-8",
-    });
+    const blob = new Blob(
+      [lines.join("\n")],
+      {
+        type: "text/markdown;charset=utf-8",
+      }
+    );
 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -363,8 +435,15 @@ export default function HandoverDashboard({ projectId }: Props) {
     URL.revokeObjectURL(url);
   }
 
+  // --------------------------------------------------
+  // RENDER
+  // --------------------------------------------------
+
   return (
     <div className="handover-page">
+
+      {/* HEADER */}
+
       <div className="handover-header">
         <div>
           <div className="handover-eyebrow">
@@ -390,6 +469,8 @@ export default function HandoverDashboard({ projectId }: Props) {
         </button>
       </div>
 
+      {/* ALERTS */}
+
       {error && (
         <div className="handover-alert error">
           <AlertTriangle size={17} />
@@ -405,8 +486,15 @@ export default function HandoverDashboard({ projectId }: Props) {
       )}
 
       <div className="handover-layout">
+
+        {/* LEFT SIDEBAR */}
+
         <aside className="handover-sidebar">
+
+          {/* GENERATE HANDOVER */}
+
           <section className="handover-panel generate-panel">
+
             <div className="handover-panel-title">
               <Sparkles size={18} />
               <h2>Generate a handover</h2>
@@ -416,32 +504,50 @@ export default function HandoverDashboard({ projectId }: Props) {
               Create a new evidence-backed draft for this project.
             </p>
 
-            <label htmlFor="handover-generator">
-              Generator user ID
-            </label>
+            {/* AUTOMATIC GENERATOR */}
 
-            <input
-              id="handover-generator"
-              type="number"
-              min="1"
-              value={generatorId}
-              onChange={(event) => setGeneratorId(event.target.value)}
-              placeholder="Example: 1"
-            />
+            <div className="handover-automatic-user">
+              <ShieldCheck size={16} />
+
+              <span>
+                Generated by your signed-in account automatically.
+              </span>
+            </div>
+
+            {/* RECIPIENT DROPDOWN */}
 
             <label htmlFor="handover-recipient">
-              Recipient user ID
+              Handover recipient
               <span>Optional</span>
             </label>
 
-            <input
+            <select
               id="handover-recipient"
-              type="number"
-              min="1"
               value={recipientId}
               onChange={(event) => setRecipientId(event.target.value)}
-              placeholder="Successor's user ID"
-            />
+              disabled={members.length === 0}
+            >
+              <option value="">
+                No recipient selected
+              </option>
+
+              {members.map((member) => (
+                <option
+                  key={member.user_id}
+                  value={member.user_id}
+                >
+                  {member.full_name} — {formatStatus(member.role)}
+                </option>
+              ))}
+            </select>
+
+            {members.length === 0 && (
+              <small className="handover-muted">
+                No active project members are available for selection.
+              </small>
+            )}
+
+            {/* GENERATE BUTTON */}
 
             <button
               className="handover-primary-button"
@@ -454,52 +560,71 @@ export default function HandoverDashboard({ projectId }: Props) {
                 <Sparkles size={17} />
               )}
 
-              {generating ? "Generating..." : "Generate Draft"}
+              {generating
+                ? "Generating..."
+                : "Generate Draft"}
             </button>
 
             <div className="handover-safety-note">
               <ShieldCheck size={16} />
+
               <span>
                 Generated reports remain drafts until reviewed and approved.
               </span>
             </div>
+
           </section>
 
+          {/* SAVED REPORTS */}
+
           <section className="handover-panel report-list-panel">
+
             <div className="handover-panel-title">
               <FileText size={18} />
+
               <h2>Saved reports</h2>
-              <span className="handover-count">{reports.length}</span>
+
+              <span className="handover-count">
+                {reports.length}
+              </span>
             </div>
 
             {loading ? (
-              <p className="handover-muted">Loading reports...</p>
+              <p className="handover-muted">
+                Loading reports...
+              </p>
             ) : reports.length === 0 ? (
               <div className="handover-empty-small">
                 <FileText size={25} />
+
                 <p>No handover reports yet.</p>
-                <span>Generate your first draft above.</span>
+
+                <span>
+                  Generate your first draft above.
+                </span>
               </div>
             ) : (
               <div className="handover-report-list">
+
                 {reports.map((report) => (
                   <button
                     key={report.id}
                     className={`handover-report-option ${
-                      selectedReportId === report.id ? "selected" : ""
+                      selectedReportId === report.id
+                        ? "selected"
+                        : ""
                     }`}
                     onClick={() => {
                       setSelectedReportId(report.id);
                       setReviewNotes("");
-                      setReviewerId(
-                        String(report.generated_by_user_id)
-                      );
                     }}
                   >
                     <div className="handover-report-option-top">
                       <FileText size={17} />
 
-                      <span className={`handover-status ${report.status}`}>
+                      <span
+                        className={`handover-status ${report.status}`}
+                      >
                         {formatStatus(report.status)}
                       </span>
                     </div>
@@ -511,24 +636,39 @@ export default function HandoverDashboard({ projectId }: Props) {
                     </small>
                   </button>
                 ))}
+
               </div>
             )}
+
           </section>
+
         </aside>
 
+        {/* MAIN REPORT PREVIEW */}
+
         <main className="handover-main">
+
           {!selectedReport ? (
+
             <section className="handover-panel handover-empty">
               <FileText size={45} />
+
               <h2>Your handover preview will appear here</h2>
+
               <p>
                 Generate a report to see approved project knowledge,
                 unfinished work, evidence, and continuity gaps.
               </p>
             </section>
+
           ) : (
+
             <>
+
+              {/* REPORT HEADER */}
+
               <section className="handover-panel report-preview">
+
                 <div className="report-preview-header">
                   <div>
                     <div className="handover-eyebrow">
@@ -545,27 +685,38 @@ export default function HandoverDashboard({ projectId }: Props) {
                   <span
                     className={`handover-status large ${selectedReport.status}`}
                   >
-                    {selectedReport.status === "draft" && <Clock size={14} />}
+                    {selectedReport.status === "draft" && (
+                      <Clock size={14} />
+                    )}
+
                     {selectedReport.status === "approved" && (
                       <CheckCircle2 size={14} />
                     )}
+
                     {selectedReport.status === "rejected" && (
                       <XCircle size={14} />
                     )}
+
                     {formatStatus(selectedReport.status)}
                   </span>
                 </div>
 
+                {/* REPORT METADATA */}
+
                 <div className="handover-meta">
+
                   <div>
                     <span>Project</span>
+
                     <strong>
-                      {reportData.project?.name ?? `Project ${projectId}`}
+                      {reportData.project?.name ??
+                        `Project ${projectId}`}
                     </strong>
                   </div>
 
                   <div>
                     <span>Generated by</span>
+
                     <strong>
                       {reportData.generated_by?.name ??
                         `User #${selectedReport.generated_by_user_id}`}
@@ -574,10 +725,13 @@ export default function HandoverDashboard({ projectId }: Props) {
 
                   <div>
                     <span>Recipient</span>
+
                     <strong>
-                      {reportData.recipient?.name ?? "Not specified"}
+                      {reportData.recipient?.name ??
+                        "Not specified"}
                     </strong>
                   </div>
+
                 </div>
 
                 <button
@@ -587,35 +741,59 @@ export default function HandoverDashboard({ projectId }: Props) {
                   <Download size={16} />
                   Export Markdown
                 </button>
+
               </section>
 
+              {/* REPORT STATISTICS */}
+
               <section className="handover-stats-grid">
+
                 <div className="handover-stat-card">
                   <Users size={19} />
-                  <strong>{summary.team_members ?? 0}</strong>
+
+                  <strong>
+                    {summary.team_members ?? 0}
+                  </strong>
+
                   <span>Team members</span>
                 </div>
 
                 <div className="handover-stat-card">
                   <FileText size={19} />
-                  <strong>{summary.approved_knowledge_items ?? 0}</strong>
+
+                  <strong>
+                    {summary.approved_knowledge_items ?? 0}
+                  </strong>
+
                   <span>Verified knowledge</span>
                 </div>
 
                 <div className="handover-stat-card warning">
                   <AlertTriangle size={19} />
-                  <strong>{summary.continuity_gaps ?? 0}</strong>
+
+                  <strong>
+                    {summary.continuity_gaps ?? 0}
+                  </strong>
+
                   <span>Continuity gaps</span>
                 </div>
 
                 <div className="handover-stat-card">
                   <Network size={19} />
-                  <strong>{summary.approved_relationships ?? 0}</strong>
+
+                  <strong>
+                    {summary.approved_relationships ?? 0}
+                  </strong>
+
                   <span>Relationships</span>
                 </div>
+
               </section>
 
+              {/* TEAM SNAPSHOT */}
+
               <section className="handover-panel">
+
                 <div className="handover-section-heading">
                   <Users size={19} />
                   <h3>Team snapshot</h3>
@@ -627,6 +805,7 @@ export default function HandoverDashboard({ projectId }: Props) {
                   </p>
                 ) : (
                   <div className="handover-team-list">
+
                     {teamSnapshot.map((member: any) => (
                       <div
                         className="handover-team-member"
@@ -640,6 +819,7 @@ export default function HandoverDashboard({ projectId }: Props) {
 
                         <div>
                           <strong>{member.name}</strong>
+
                           <span>
                             {formatStatus(member.role)} ·{" "}
                             {formatStatus(member.membership_status)}
@@ -647,14 +827,21 @@ export default function HandoverDashboard({ projectId }: Props) {
                         </div>
                       </div>
                     ))}
+
                   </div>
                 )}
+
               </section>
 
+              {/* CONTINUITY GAPS */}
+
               <section className="handover-panel">
+
                 <div className="handover-section-heading">
                   <AlertTriangle size={19} />
+
                   <h3>Continuity gaps</h3>
+
                   <span className="handover-count">
                     {continuityGaps.length}
                   </span>
@@ -671,6 +858,7 @@ export default function HandoverDashboard({ projectId }: Props) {
                   </p>
                 ) : (
                   <div className="handover-item-list">
+
                     {continuityGaps.map((item: any) => (
                       <article
                         className="handover-knowledge-item gap-item"
@@ -678,12 +866,16 @@ export default function HandoverDashboard({ projectId }: Props) {
                       >
                         <div className="handover-item-heading">
                           <strong>{item.title}</strong>
+
                           <span className="handover-status warning">
                             {formatStatus(item.work_status)}
                           </span>
                         </div>
 
-                        <p>{item.description || "No description recorded."}</p>
+                        <p>
+                          {item.description ||
+                            "No description recorded."}
+                        </p>
 
                         <small>
                           Assigned to: {item.assigned_to ?? "Unknown"}
@@ -696,21 +888,30 @@ export default function HandoverDashboard({ projectId }: Props) {
                         )}
 
                         <small>
-                          Source: {item.evidence?.document_name ?? "Unavailable"}
+                          Source:{" "}
+                          {item.evidence?.document_name ?? "Unavailable"}
+
                           {item.evidence?.source_locator
                             ? ` · ${item.evidence.source_locator}`
                             : ""}
                         </small>
                       </article>
                     ))}
+
                   </div>
                 )}
+
               </section>
 
+              {/* OTHER UNFINISHED WORK */}
+
               <section className="handover-panel">
+
                 <div className="handover-section-heading">
                   <Clock size={19} />
+
                   <h3>Other unfinished work</h3>
+
                   <span className="handover-count">
                     {openWorkItems.length}
                   </span>
@@ -722,6 +923,7 @@ export default function HandoverDashboard({ projectId }: Props) {
                   </p>
                 ) : (
                   <div className="handover-item-list">
+
                     {openWorkItems.map((item: any) => (
                       <article
                         className="handover-knowledge-item"
@@ -729,26 +931,37 @@ export default function HandoverDashboard({ projectId }: Props) {
                       >
                         <div className="handover-item-heading">
                           <strong>{item.title}</strong>
+
                           <span className="handover-status warning">
                             {formatStatus(item.work_status)}
                           </span>
                         </div>
 
-                        <p>{item.description || "No description recorded."}</p>
+                        <p>
+                          {item.description ||
+                            "No description recorded."}
+                        </p>
 
                         <small>
                           Owner: {item.assigned_to ?? "Unassigned"}
                         </small>
                       </article>
                     ))}
+
                   </div>
                 )}
+
               </section>
 
+              {/* APPROVED PROJECT KNOWLEDGE */}
+
               <section className="handover-panel">
+
                 <div className="handover-section-heading">
                   <ShieldCheck size={19} />
+
                   <h3>Approved project knowledge</h3>
+
                   <span className="handover-count">
                     {approvedKnowledge.length}
                   </span>
@@ -760,6 +973,7 @@ export default function HandoverDashboard({ projectId }: Props) {
                   </p>
                 ) : (
                   <div className="handover-item-list">
+
                     {approvedKnowledge.map((item: any) => (
                       <article
                         className="handover-knowledge-item"
@@ -767,12 +981,16 @@ export default function HandoverDashboard({ projectId }: Props) {
                       >
                         <div className="handover-item-heading">
                           <strong>{item.title}</strong>
+
                           <span className="handover-type">
                             {formatStatus(item.type)}
                           </span>
                         </div>
 
-                        <p>{item.description || "No description recorded."}</p>
+                        <p>
+                          {item.description ||
+                            "No description recorded."}
+                        </p>
 
                         <div className="handover-evidence">
                           <strong>Source evidence</strong>
@@ -785,6 +1003,7 @@ export default function HandoverDashboard({ projectId }: Props) {
                           <small>
                             {item.evidence?.document_name ??
                               "Source document unavailable"}
+
                             {item.evidence?.source_locator
                               ? ` · ${item.evidence.source_locator}`
                               : ""}
@@ -792,14 +1011,21 @@ export default function HandoverDashboard({ projectId }: Props) {
                         </div>
                       </article>
                     ))}
+
                   </div>
                 )}
+
               </section>
 
+              {/* APPROVED RELATIONSHIPS */}
+
               <section className="handover-panel">
+
                 <div className="handover-section-heading">
                   <Network size={19} />
+
                   <h3>Approved relationships</h3>
+
                   <span className="handover-count">
                     {relationships.length}
                   </span>
@@ -811,23 +1037,35 @@ export default function HandoverDashboard({ projectId }: Props) {
                   </p>
                 ) : (
                   <div className="handover-relationship-list">
+
                     {relationships.map((relationship: any) => (
                       <div
                         className="handover-relationship"
                         key={relationship.id}
                       >
-                        <strong>{relationship.source_title}</strong>
+                        <strong>
+                          {relationship.source_title}
+                        </strong>
+
                         <span>
                           {formatStatus(relationship.relationship_type)}
                         </span>
-                        <strong>{relationship.target_title}</strong>
+
+                        <strong>
+                          {relationship.target_title}
+                        </strong>
                       </div>
                     ))}
+
                   </div>
                 )}
+
               </section>
 
+              {/* UNRESOLVED QUESTIONS */}
+
               <section className="handover-panel">
+
                 <div className="handover-section-heading">
                   <FileText size={19} />
                   <h3>Unresolved questions</h3>
@@ -839,14 +1077,22 @@ export default function HandoverDashboard({ projectId }: Props) {
                   </p>
                 ) : (
                   <ul className="handover-simple-list">
+
                     {questions.map((question: any) => (
-                      <li key={question.id}>{question.title}</li>
+                      <li key={question.id}>
+                        {question.title}
+                      </li>
                     ))}
+
                   </ul>
                 )}
+
               </section>
 
+              {/* RECOMMENDED NEXT STEPS */}
+
               <section className="handover-panel">
+
                 <div className="handover-section-heading">
                   <CheckCircle2 size={19} />
                   <h3>Recommended next steps</h3>
@@ -857,9 +1103,13 @@ export default function HandoverDashboard({ projectId }: Props) {
                     <li key={index}>{step}</li>
                   ))}
                 </ol>
+
               </section>
 
+              {/* QUALITY AND LIMITATIONS */}
+
               <section className="handover-panel quality-panel">
+
                 <div className="handover-section-heading">
                   <AlertTriangle size={19} />
                   <h3>Quality and limitations</h3>
@@ -875,18 +1125,24 @@ export default function HandoverDashboard({ projectId }: Props) {
                   <span>
                     Pending: {summary.pending_knowledge_records ?? 0}
                   </span>
+
                   <span>
                     Needs clarification:{" "}
                     {summary.needs_clarification_records ?? 0}
                   </span>
+
                   <span>
                     Rejected: {summary.rejected_knowledge_records ?? 0}
                   </span>
                 </div>
+
               </section>
+
+              {/* HUMAN REVIEW */}
 
               {selectedReport.status === "draft" && (
                 <section className="handover-panel review-panel">
+
                   <div className="handover-section-heading">
                     <ShieldCheck size={19} />
                     <h3>Human review required</h3>
@@ -897,18 +1153,15 @@ export default function HandoverDashboard({ projectId }: Props) {
                     approving this handover.
                   </p>
 
-                  <label htmlFor="handover-reviewer">
-                    Reviewer user ID
-                  </label>
+                  {/* AUTOMATIC REVIEWER */}
 
-                  <input
-                    id="handover-reviewer"
-                    type="number"
-                    min="1"
-                    value={reviewerId}
-                    onChange={(event) => setReviewerId(event.target.value)}
-                    placeholder="Owner/admin user ID"
-                  />
+                  <div className="handover-automatic-user">
+                    <ShieldCheck size={16} />
+
+                    <span>
+                      Reviewer identity is taken from your signed-in account.
+                    </span>
+                  </div>
 
                   <label htmlFor="handover-review-notes">
                     Review notes
@@ -923,6 +1176,7 @@ export default function HandoverDashboard({ projectId }: Props) {
                   />
 
                   <div className="handover-review-actions">
+
                     <button
                       className="handover-approve-button"
                       onClick={() => void reviewReport("approved")}
@@ -940,12 +1194,17 @@ export default function HandoverDashboard({ projectId }: Props) {
                       <XCircle size={16} />
                       Reject Draft
                     </button>
+
                   </div>
+
                 </section>
               )}
 
+              {/* REVIEWED REPORT */}
+
               {selectedReport.status !== "draft" && (
                 <section className="handover-panel reviewed-panel">
+
                   <div className="handover-section-heading">
                     {selectedReport.status === "approved" ? (
                       <CheckCircle2 size={19} />
@@ -965,12 +1224,17 @@ export default function HandoverDashboard({ projectId }: Props) {
                   </p>
 
                   {selectedReport.review_notes && (
-                    <blockquote>{selectedReport.review_notes}</blockquote>
+                    <blockquote>
+                      {selectedReport.review_notes}
+                    </blockquote>
                   )}
+
                 </section>
               )}
+
             </>
           )}
+
         </main>
       </div>
     </div>
